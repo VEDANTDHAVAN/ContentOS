@@ -17,3 +17,8 @@ export const generateCampaign = async (
     );
     return response.data;
 };
+
+export const getCampaigns = async () => {
+    const response = await API.get("/campaigns");
+    return response.data;
+};

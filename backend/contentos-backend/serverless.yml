@@ -38,6 +38,7 @@ provider:
         - Effect: Allow
           Action:
             - dynamodb:PutItem
+            - dynamodb:Scan
           Resource: "*"
 
         # NEW — S3 Upload Permission
@@ -54,3 +55,10 @@ functions:
       - httpApi:
           path: /generate
           method: post
+
+  campaigns:
+    handler: handler.getCampaigns
+    events:
+      - httpApi:
+          path: /campaigns
+          method: get

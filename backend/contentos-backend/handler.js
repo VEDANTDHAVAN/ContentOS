@@ -8,6 +8,7 @@ const crypto = require("crypto");
 
 const bedrock = new BedrockRuntimeClient({ region: "us-east-1" });
 const dynamo = new DynamoDBClient({ region: "us-east-1" });
+const { ScanCommand } = require("@aws-sdk/client-dynamodb");
 
 module.exports.generate = async (event) => {
   try {
@@ -147,15 +148,7 @@ Social media ready.
 
     const campaignId = crypto.randomUUID();
 
-    await dynamo.send(new PutItemCommand({
-      TableName: "ContentOS_Campaigns",
-      Item: {
-        campaignId: { S: campaignId },
-        campaignGoal: { S: campaignGoal },
-        generatedContent: { S: JSON.stringify(parsedResult) },
-        createdAt: { S: new Date().toISOString() }
-      }
-    }));
+    const createdAt = new Date().toISOString();
 
     // Image Upload
     const imageKey = `campaign-images/${campaignId}.png`;
@@ -167,7 +160,18 @@ Social media ready.
       ContentType: "image/png"
     }));
 
-    const imageUrl = `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+    const imageUrlResponse = `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+
+    await dynamo.send(new PutItemCommand({
+      TableName: "ContentOS_Campaigns",
+      Item: {
+        campaignId: { S: campaignId },
+        campaignGoal: { S: campaignGoal },
+        generatedContent: { S: JSON.stringify(parsedResult) },
+        imageUrl: { S: imageUrlResponse },
+        createdAt: { S: createdAt }
+      }
+    }));
 
     return {
       statusCode: 200,
@@ -179,7 +183,9 @@ Social media ready.
       body: JSON.stringify({
         campaignId,
         result: parsedResult,
-        imageUrl
+        imageUrl: imageUrlResponse,
+        campaignGoal,
+        createdAt
       })
     };
 
@@ -189,6 +195,41 @@ Social media ready.
       statusCode: 500,
       body: JSON.stringify({
         message: "Generation failed",
+        error: error.message
+      })
+    };
+  }
+};
+
+module.exports.getCampaigns = async () => {
+  try {
+    const data = await dynamo.send(new ScanCommand({
+      TableName: "ContentOS_Campaigns"
+    }));
+
+    const campaigns = data.Items.map(item => ({
+      campaignId: item.campaignId.S,
+      campaignGoal: item.campaignGoal.S,
+      generatedContent: JSON.parse(item.generatedContent.S),
+      imageUrl: item.imageUrl?.S,
+      createdAt: item.createdAt.S
+    }));
+
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "*"
+      },
+      body: JSON.stringify(campaigns)
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        message: "Failed to fetch campaigns",
         error: error.message
       })
     };
