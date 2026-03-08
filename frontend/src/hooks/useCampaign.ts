@@ -2,8 +2,10 @@ import { useState } from "react";
 import { generateCampaign } from "../services/api";
 import type { GenerateCampaignResponse } from "../types/campaign";
 import axios from "axios";
+import { useAuth } from "@clerk/react";
 
 export const useCampaign = () => {
+    const { userId } = useAuth();
     const [loading, setLoading] = useState<boolean>(false);
     const [data, setData] = useState<GenerateCampaignResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -12,7 +14,7 @@ export const useCampaign = () => {
         try {
             setLoading(true);
             setError(null);
-            const response = await generateCampaign(goal);
+            const response = await generateCampaign(goal, userId!);
 
             console.log("API Response:", response);
             setData(response);

@@ -4,17 +4,27 @@ import HistoryPage from './pages/History';
 import AssetsPage from './pages/Assets';
 import './App.css';
 import AgentStudio from "./pages/AgentStudio";
+import { Show } from "@clerk/react";
+import SignedOutLanding from "./components/auth/SignedOutLanding";
 
 function App() {
   return (
     <Router>
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/assets" element={<AssetsPage />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/agent" element={<AgentStudio />} />
-      </Routes>
+
+      <Show when="signed-out">
+        <SignedOutLanding />
+      </Show>
+
+      <Show when="signed-in">
+        <Routes>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/assets" element={<AssetsPage />} />
+          <Route path="/agent" element={<AgentStudio />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </Show>
+
     </Router>
   );
 }

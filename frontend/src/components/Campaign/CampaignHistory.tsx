@@ -5,14 +5,16 @@ import { motion } from "framer-motion";
 import { Calendar } from "lucide-react";
 import type { Campaign } from "../../types/campaign";
 import { formatDate } from "../../lib/utils";
+import { useAuth } from "@clerk/react";
 
 const CampaignHistory = () => {
+    const { userId } = useAuth();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
     useEffect(() => {
         const fetchCampaigns = async () => {
             try {
-                const response = await getCampaigns();
+                const response = await getCampaigns(userId!);
                 const data: Campaign[] = Array.isArray(response) ? response : response.campaigns || [];
                 setCampaigns(data);
             } catch (error) {

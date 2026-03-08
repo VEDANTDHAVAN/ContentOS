@@ -24,10 +24,9 @@ const Dashboard: React.FC = () => {
 
                 {data && (
                     <>
-                        <EngagementCard score={data.result.engagement_score} />
+                        <EngagementCard score={data.campaign?.engagement_score} />
                         <ResultDisplay
-                            result={data.result}
-                            imageUrl={data.imageUrl}
+                            campaign={data}
                         />
                     </>
                 )}

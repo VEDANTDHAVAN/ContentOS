@@ -1,15 +1,18 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/Card";
-import type { CampaignResult } from "../../types/campaign";
 import { Linkedin, Twitter, Share2, Copy, Download } from "lucide-react";
 import { Button } from "../ui/Button";
 import { motion } from "framer-motion";
 
 interface Props {
-    result: CampaignResult;
-    imageUrl?: string;
+    campaign: any;
 }
 
-const ResultDisplay = ({ result, imageUrl }: Props) => {
+const ResultDisplay = ({ campaign }: Props) => {
+    const content = campaign?.campaign || campaign?.generatedContent || {};
+    const imageUrl = campaign?.imageUrl;
+    const linkedinPost = content.linkedin_post || "";
+    const twitterThread = content.twitter_thread || [];
+
     return (
         <div className="space-y-8 pb-12">
 
@@ -38,7 +41,7 @@ const ResultDisplay = ({ result, imageUrl }: Props) => {
                     <CardContent>
                         <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800">
                             <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap italic">
-                                "{result.linkedin_post}"
+                                {linkedinPost}
                             </p>
                         </div>
                     </CardContent>
@@ -59,7 +62,7 @@ const ResultDisplay = ({ result, imageUrl }: Props) => {
                             </div>
                             <div>
                                 <CardTitle className="text-lg">Twitter Thread</CardTitle>
-                                <CardDescription>{result.twitter_thread.length} tweets generated</CardDescription>
+                                <CardDescription>{twitterThread.length} tweets generated</CardDescription>
                             </div>
                         </div>
                         <div className="flex gap-1">
@@ -68,7 +71,7 @@ const ResultDisplay = ({ result, imageUrl }: Props) => {
                     </CardHeader>
 
                     <CardContent className="space-y-4">
-                        {result.twitter_thread.map((tweet, i) => (
+                        {twitterThread.map((tweet: string, i: number) => (
                             <div key={i} className="relative pl-8 before:absolute before:left-3 before:top-2 before:bottom-0 before:w-0.5 before:bg-sky-100 dark:before:bg-sky-900 last:before:hidden">
                                 <div className="absolute left-0 top-1 size-6 rounded-full bg-sky-500 flex items-center justify-center text-[10px] font-bold text-white">
                                     {i + 1}

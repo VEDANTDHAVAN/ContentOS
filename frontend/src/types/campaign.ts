@@ -6,8 +6,10 @@ export interface CampaignResult {
 
 export interface GenerateCampaignResponse {
     campaignId: string;
-    result: CampaignResult;
+    campaign: CampaignResult;
     imageUrl: string;
+    predictedEngagement?: number;
+    contentCalendar?: any[];
     campaignGoal: string;
     createdAt: string;
 }

@@ -20,6 +20,7 @@ provider:
         - "http://localhost:5173"
       allowedMethods:
         - POST
+        - GET
         - OPTIONS
       allowedHeaders:
         - Content-Type
@@ -49,11 +50,11 @@ provider:
             - arn:aws:s3:::contentos-assets/*
 
 functions:
-  generate:
-    handler: handler.generate
+  agent:
+    handler: handler.agent
     events:
       - httpApi:
-          path: /generate
+          path: /agent
           method: post
 
   campaigns:

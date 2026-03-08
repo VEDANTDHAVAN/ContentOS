@@ -7,16 +7,18 @@ import { Download, ExternalLink, Image as ImageIcon, Search } from "lucide-react
 import { Button } from "../components/ui/Button";
 import type { Campaign } from "../types/campaign";
 import { formatDate } from "../lib/utils";
+import { useUser } from "@clerk/react";
 
 const AssetsPage: React.FC = () => {
     const [assets, setAssets] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
+    const { user } = useUser();
 
     useEffect(() => {
         const fetchAssets = async () => {
             try {
-                const response = await getCampaigns();
+                const response = await getCampaigns(user?.id! || "");
                 // If response is nested or an array directly
                 const campaigns: Campaign[] = Array.isArray(response) ? response : response.campaigns || [];
 

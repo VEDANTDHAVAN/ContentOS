@@ -19,10 +19,15 @@ const ChatMessage = ({ message }: Props) => {
         <div className="flex justify-start">
             <div className="bg-white border px-4 py-3 rounded-xl max-w-xl shadow-sm">
 
-                {message.result ? (
+                {message.campaign ? (
                     <ResultDisplay
-                        result={message.result.result}
-                        imageUrl={message.result.imageUrl}
+                        campaign={{
+                            generatedContent: message.campaign.generatedContent,
+                            imageUrl: message.campaign.imageUrl,
+                            campaignId: message.campaign.campaignId,
+                            campaignGoal: message.campaign.campaignGoal,
+                            createdAt: message.campaign.createdAt,
+                        }}
                     />
                 ) : (
                     <p>{message.content}</p>

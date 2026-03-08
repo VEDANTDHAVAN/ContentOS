@@ -10,15 +10,17 @@ const API = axios.create({
 });
 
 export const generateCampaign = async (
-    campaignGoal: string
+    campaignGoal: string, userId: string
 ): Promise<GenerateCampaignResponse> => {
     const response = await API.post<GenerateCampaignResponse>(
-        "/generate", { campaignGoal }
+        "/agent", { campaignGoal, userId }
     );
     return response.data;
 };
 
-export const getCampaigns = async () => {
-    const response = await API.get("/campaigns");
+export const getCampaigns = async (userId: string) => {
+    const response = await API.get("/campaigns", {
+        params: { userId }
+    });
     return response.data;
 };

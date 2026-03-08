@@ -1,57 +1,118 @@
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
-
-const s3 = new S3Client({ region: "us-east-1" });
-
 const { BedrockRuntimeClient, InvokeModelCommand } = require("@aws-sdk/client-bedrock-runtime");
-const { DynamoDBClient, PutItemCommand } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBClient, PutItemCommand, ScanCommand } = require("@aws-sdk/client-dynamodb");
+
 const crypto = require("crypto");
 
+const s3 = new S3Client({ region: "us-east-1" });
 const bedrock = new BedrockRuntimeClient({ region: "us-east-1" });
 const dynamo = new DynamoDBClient({ region: "us-east-1" });
-const { ScanCommand } = require("@aws-sdk/client-dynamodb");
 
-module.exports.generate = async (event) => {
+/* ------------------------------
+   Utility: JSON extractor
+------------------------------ */
+
+function extractCampaignJSON(textOutput) {
+
+  const matches = textOutput.match(/\{[\s\S]*?\}/g);
+
+  if (!matches) return null;
+
+  for (const block of matches.reverse()) {
+    try {
+      const parsed = JSON.parse(block);
+
+      if (
+        parsed.linkedin_post &&
+        parsed.twitter_thread &&
+        parsed.engagement_score !== undefined
+      ) {
+        return parsed;
+      }
+
+    } catch (err) { }
+  }
+
+  return null;
+}
+
+/* ------------------------------
+   Tool: Engagement prediction
+------------------------------ */
+
+function predictEngagement(campaign) {
+
+  const score =
+    Math.min(
+      10,
+      Math.floor(
+        campaign.linkedin_post.length / 50 +
+        campaign.twitter_thread.length * 2
+      )
+    );
+
+  return score;
+
+}
+
+/* ------------------------------
+   Tool: Content calendar
+------------------------------ */
+
+function buildCalendar(goal) {
+
+  return [
+    { day: "Monday", platform: "LinkedIn", content: "Launch announcement" },
+    { day: "Tuesday", platform: "Twitter", content: "Thread about product value" },
+    { day: "Wednesday", platform: "Instagram", content: "Visual asset post" },
+    { day: "Thursday", platform: "LinkedIn", content: "Founder story" },
+    { day: "Friday", platform: "Twitter", content: "Community engagement post" }
+  ];
+
+}
+
+/* ------------------------------
+   Agent Endpoint
+------------------------------ */
+
+module.exports.agent = async (event) => {
+
   try {
+
     const body = JSON.parse(event.body);
 
     let campaignGoal = body.campaignGoal;
     const messages = body.messages || [];
+    const userId = body.userId || "anonymous";
 
-    // If messages exist (agent mode)
     if (messages.length) {
       campaignGoal = messages
         .map(m => `${m.role.toUpperCase()}: ${m.content}`)
         .join("\n");
     }
+
+    /* ------------------------------
+       Campaign generation prompt
+    ------------------------------ */
+
     const prompt = `
-You are ContentOS AI, an expert marketing campaign strategist.
+You are ContentOS AI, a marketing campaign strategist.
 
-Generate marketing campaigns for users.
-
-Return ONLY valid JSON in this format:
+Return ONLY JSON in this format:
 
 {
-  "linkedin_post": "...",
-  "twitter_thread": ["...", "...", "..."],
-  "engagement_score": number
+ "linkedin_post": "...",
+ "twitter_thread": ["...", "...", "..."],
+ "engagement_score": number
 }
 
 Rules:
-- No explanations
 - JSON only
-- Keep under 400 tokens
+- no explanation
+- no markdown
 
-Conversation Context:
+Campaign goal:
 ${campaignGoal}
-`;
-
-    const imagePrompt = `
-Create a professional marketing banner for:
-${campaignGoal}
-
-Style:
-Modern, AI-focused, clean, tech branding.
-Social media ready.
 `;
 
     const command = new InvokeModelCommand({
@@ -59,137 +120,108 @@ Social media ready.
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
-        prompt: prompt,
-        temperature: 0.7,
-        top_p: 0.9
+        prompt,
+        temperature: 0.6,
+        top_p: 0.9,
+        max_gen_len: 300
       })
     });
 
-    const generateImage = body.generateImage ?? true;
-
-    let imageUrlResponse = null;
-    let base64Image = null;
-
-    // Generate campaign text first
     const textResponse = await bedrock.send(command);
-
-    if (generateImage) {
-      const imageCommand = new InvokeModelCommand({
-        modelId: "amazon.titan-image-generator-v2:0",
-        contentType: "application/json",
-        accept: "application/json",
-        body: JSON.stringify({
-          taskType: "TEXT_IMAGE",
-          textToImageParams: {
-            text: imagePrompt
-          },
-          imageGenerationConfig: {
-            numberOfImages: 1,
-            height: 512,
-            width: 512,
-            cfgScale: 8.0
-          }
-        })
-      });
-
-      const imageResponse = await bedrock.send(imageCommand);
-
-      const imageRaw = JSON.parse(
-        new TextDecoder().decode(imageResponse.body)
-      );
-
-      base64Image = imageRaw.images[0];
-    }
 
     const resultRaw = JSON.parse(new TextDecoder().decode(textResponse.body));
     const textOutput = resultRaw.generation;
-    // Function to extract valid JSON blocks by tracking braces
-    function extractJSONBlocks(text) {
-      const blocks = [];
-      let braceCount = 0;
-      let startIndex = null;
 
-      for (let i = 0; i < text.length; i++) {
-        if (text[i] === "{") {
-          if (braceCount === 0) {
-            startIndex = i;
-          }
-          braceCount++;
-        }
-
-        if (text[i] === "}") {
-          braceCount--;
-          if (braceCount === 0 && startIndex !== null) {
-            blocks.push(text.slice(startIndex, i + 1));
-            startIndex = null;
-          }
-        }
-      }
-
-      return blocks;
-    }
-
-    let jsonBlocks = extractJSONBlocks(textOutput);
-
-    if (!jsonBlocks.length) {
-      const match = textOutput.match(/\{[\s\S]*\}/);
-      if (match) jsonBlocks = [match[0]];
-    }
-
-    let parsedResult = null;
-
-    for (let i = jsonBlocks.length - 1; i >= 0; i--) {
-      try {
-        const candidate = JSON.parse(jsonBlocks[i]);
-
-        // Ensure it matches expected schema
-        if (
-          candidate.linkedin_post &&
-          candidate.twitter_thread &&
-          candidate.engagement_score !== undefined
-        ) {
-          parsedResult = candidate;
-          break;
-        }
-      } catch (err) {
-        continue;
-      }
-    }
+    const parsedResult = extractCampaignJSON(textOutput);
 
     if (!parsedResult) {
-      console.error("All JSON blocks:", jsonBlocks);
+      console.error("MODEL OUTPUT:", textOutput);
       throw new Error("Could not parse valid campaign JSON");
     }
 
-    const campaignId = crypto.randomUUID();
+    /* ------------------------------
+       Generate image
+    ------------------------------ */
 
+    const imagePrompt = `
+Create a professional marketing banner for:
+
+${campaignGoal}
+
+Style: modern AI startup branding
+`;
+
+    const imageCommand = new InvokeModelCommand({
+      modelId: "amazon.titan-image-generator-v2:0",
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify({
+        taskType: "TEXT_IMAGE",
+        textToImageParams: { text: imagePrompt },
+        imageGenerationConfig: {
+          numberOfImages: 1,
+          height: 512,
+          width: 512,
+          cfgScale: 8.0
+        }
+      })
+    });
+
+    const imageResponse = await bedrock.send(imageCommand);
+
+    const imageRaw = JSON.parse(new TextDecoder().decode(imageResponse.body));
+
+    const base64Image = imageRaw.images[0];
+
+    const campaignId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
 
-    // Image Upload
-    if (base64Image) {
+    /* ------------------------------
+       Upload image
+    ------------------------------ */
 
-      const imageKey = `campaign-images/${campaignId}.png`;
+    const imageKey = `campaign-images/${campaignId}.png`;
 
-      await s3.send(new PutObjectCommand({
-        Bucket: "contentos-assets",
-        Key: imageKey,
-        Body: Buffer.from(base64Image, "base64"),
-        ContentType: "image/png"
-      }));
+    await s3.send(new PutObjectCommand({
+      Bucket: "contentos-assets",
+      Key: imageKey,
+      Body: Buffer.from(base64Image, "base64"),
+      ContentType: "image/png"
+    }));
 
-      imageUrlResponse =
-        `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
-    }
+    const imageUrl =
+      `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+
+    /* ------------------------------
+       Agent tools
+    ------------------------------ */
+
+    const predictedEngagement =
+      predictEngagement(parsedResult);
+
+    const calendar =
+      buildCalendar(campaignGoal);
+
+    /* ------------------------------
+       Save to DynamoDB
+    ------------------------------ */
+
     await dynamo.send(new PutItemCommand({
       TableName: "ContentOS_Campaigns",
       Item: {
         campaignId: { S: campaignId },
+        userId: { S: userId },
         campaignGoal: { S: campaignGoal },
         generatedContent: { S: JSON.stringify(parsedResult) },
-        imageUrl: { S: imageUrlResponse },
+        imageUrl: { S: imageUrl },
+        engagementScore: { N: predictedEngagement.toString() },
         createdAt: { S: createdAt }
       }
     }));
+
+    /* ------------------------------
+       Response
+    ------------------------------ */
 
     return {
       statusCode: 200,
@@ -200,38 +232,66 @@ Social media ready.
       },
       body: JSON.stringify({
         campaignId,
-        result: parsedResult,
-        imageUrl: imageUrlResponse,
+        campaign: parsedResult,
+        imageUrl,
+        predictedEngagement,
+        contentCalendar: calendar,
         campaignGoal,
         createdAt
       })
     };
 
   } catch (error) {
+
     console.error(error);
+
     return {
       statusCode: 500,
       body: JSON.stringify({
-        message: "Generation failed",
+        message: "Agent execution failed",
         error: error.message
       })
     };
+
   }
+
 };
 
-module.exports.getCampaigns = async () => {
+/* ------------------------------
+   Campaign history
+------------------------------ */
+
+module.exports.getCampaigns = async (event) => {
+
   try {
+
+    const userId = event.queryStringParameters?.userId;
+
+    if (!userId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          message: "UserId is required"
+        })
+      };
+    }
+
     const data = await dynamo.send(new ScanCommand({
       TableName: "ContentOS_Campaigns"
     }));
 
-    const campaigns = data.Items.map(item => ({
-      campaignId: item.campaignId.S,
-      campaignGoal: item.campaignGoal.S,
-      generatedContent: JSON.parse(item.generatedContent.S),
-      imageUrl: item.imageUrl?.S,
-      createdAt: item.createdAt.S
-    })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const campaigns =
+      data.Items
+        .map(item => ({
+          campaignId: item.campaignId.S,
+          campaignGoal: item.campaignGoal.S,
+          generatedContent: JSON.parse(item.generatedContent.S),
+          imageUrl: item.imageUrl?.S,
+          createdAt: item.createdAt.S,
+          userId: item.userId?.S
+        }))
+        .filter(c => c.userId === userId)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return {
       statusCode: 200,
@@ -242,8 +302,11 @@ module.exports.getCampaigns = async () => {
       },
       body: JSON.stringify(campaigns)
     };
+
   } catch (error) {
+
     console.error(error);
+
     return {
       statusCode: 500,
       body: JSON.stringify({
@@ -251,5 +314,7 @@ module.exports.getCampaigns = async () => {
         error: error.message
       })
     };
+
   }
+
 };
