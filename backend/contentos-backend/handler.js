@@ -13,17 +13,22 @@ const { ScanCommand } = require("@aws-sdk/client-dynamodb");
 module.exports.generate = async (event) => {
   try {
     const body = JSON.parse(event.body);
-    const campaignGoal = body.campaignGoal;
 
+    let campaignGoal = body.campaignGoal;
+    const messages = body.messages || [];
+
+    // If messages exist (agent mode)
+    if (messages.length) {
+      campaignGoal = messages
+        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+        .join("\n");
+    }
     const prompt = `
-You are a campaign strategist AI.
+You are ContentOS AI, an expert marketing campaign strategist.
 
-Generate:
-1 LinkedIn post
-1 Twitter thread (3 tweets)
-Provide engagement score from 1-10.
+Generate marketing campaigns for users.
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this format:
 
 {
   "linkedin_post": "...",
@@ -31,10 +36,12 @@ Return ONLY valid JSON in this exact format:
   "engagement_score": number
 }
 
-Do not include explanations.
-Keep total response under 400 tokens.
+Rules:
+- No explanations
+- JSON only
+- Keep under 400 tokens
 
-Campaign Goal:
+Conversation Context:
 ${campaignGoal}
 `;
 
@@ -58,33 +65,41 @@ Social media ready.
       })
     });
 
-    // Titan Image request
-    const imageCommand = new InvokeModelCommand({
-      modelId: "amazon.titan-image-generator-v2:0",
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify({
-        taskType: "TEXT_IMAGE",
-        textToImageParams: {
-          text: imagePrompt
-        },
-        imageGenerationConfig: {
-          numberOfImages: 1,
-          height: 512,
-          width: 512,
-          cfgScale: 8.0
-        }
-      })
-    });
+    const generateImage = body.generateImage ?? true;
 
-    const [textResponse, imageResponse] = await Promise.all([
-      bedrock.send(command), bedrock.send(imageCommand)
-    ]);
+    let imageUrlResponse = null;
+    let base64Image = null;
 
-    const imageRaw = JSON.parse(
-      new TextDecoder().decode(imageResponse.body)
-    );
-    const base64Image = imageRaw.images[0];
+    // Generate campaign text first
+    const textResponse = await bedrock.send(command);
+
+    if (generateImage) {
+      const imageCommand = new InvokeModelCommand({
+        modelId: "amazon.titan-image-generator-v2:0",
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify({
+          taskType: "TEXT_IMAGE",
+          textToImageParams: {
+            text: imagePrompt
+          },
+          imageGenerationConfig: {
+            numberOfImages: 1,
+            height: 512,
+            width: 512,
+            cfgScale: 8.0
+          }
+        })
+      });
+
+      const imageResponse = await bedrock.send(imageCommand);
+
+      const imageRaw = JSON.parse(
+        new TextDecoder().decode(imageResponse.body)
+      );
+
+      base64Image = imageRaw.images[0];
+    }
 
     const resultRaw = JSON.parse(new TextDecoder().decode(textResponse.body));
     const textOutput = resultRaw.generation;
@@ -114,11 +129,11 @@ Social media ready.
       return blocks;
     }
 
-    const jsonBlocks = extractJSONBlocks(textOutput);
+    let jsonBlocks = extractJSONBlocks(textOutput);
 
     if (!jsonBlocks.length) {
-      console.error("Model output:", textOutput);
-      throw new Error("No JSON blocks found");
+      const match = textOutput.match(/\{[\s\S]*\}/);
+      if (match) jsonBlocks = [match[0]];
     }
 
     let parsedResult = null;
@@ -151,17 +166,20 @@ Social media ready.
     const createdAt = new Date().toISOString();
 
     // Image Upload
-    const imageKey = `campaign-images/${campaignId}.png`;
+    if (base64Image) {
 
-    await s3.send(new PutObjectCommand({
-      Bucket: "contentos-assets",
-      Key: imageKey,
-      Body: Buffer.from(base64Image, "base64"),
-      ContentType: "image/png"
-    }));
+      const imageKey = `campaign-images/${campaignId}.png`;
 
-    const imageUrlResponse = `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+      await s3.send(new PutObjectCommand({
+        Bucket: "contentos-assets",
+        Key: imageKey,
+        Body: Buffer.from(base64Image, "base64"),
+        ContentType: "image/png"
+      }));
 
+      imageUrlResponse =
+        `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+    }
     await dynamo.send(new PutItemCommand({
       TableName: "ContentOS_Campaigns",
       Item: {
@@ -213,7 +231,7 @@ module.exports.getCampaigns = async () => {
       generatedContent: JSON.parse(item.generatedContent.S),
       imageUrl: item.imageUrl?.S,
       createdAt: item.createdAt.S
-    }));
+    })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return {
       statusCode: 200,

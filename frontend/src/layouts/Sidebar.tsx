@@ -1,8 +1,9 @@
-import { LayoutDashboard, History, Image, Settings, Sparkles } from "lucide-react";
+import { LayoutDashboard, History, Image, Settings, Sparkles, Bot } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+    { icon: Bot, label: "Agent Studio", path: "/agent" },
     { icon: History, label: "Campaign History", path: "/history" },
     { icon: Image, label: "Assets", path: "/assets" },
     { icon: Settings, label: "Settings", path: "/settings" },
@@ -37,8 +38,8 @@ const Sidebar = () => {
                         key={item.label}
                         to={item.path}
                         className={({ isActive }) => `flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-all font-medium text-sm group ${isActive
-                                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                             }`}
                     >
                         <item.icon size={18} className="group-active:scale-95 transition-transform" />
