@@ -4,9 +4,10 @@ const { DynamoDBClient, PutItemCommand, ScanCommand } = require("@aws-sdk/client
 
 const crypto = require("crypto");
 
-const s3 = new S3Client({ region: "us-east-1" });
-const bedrock = new BedrockRuntimeClient({ region: "us-east-1" });
-const dynamo = new DynamoDBClient({ region: "us-east-1" });
+const REGION = process.env.AWS_REGION_NAME || "us-east-1";
+const s3 = new S3Client({ region: REGION });
+const bedrock = new BedrockRuntimeClient({ region: REGION });
+const dynamo = new DynamoDBClient({ region: REGION });
 
 /* ------------------------------
    Utility: JSON extractor
@@ -116,7 +117,7 @@ ${campaignGoal}
 `;
 
     const command = new InvokeModelCommand({
-      modelId: "arn:aws:bedrock:us-east-1:055129270743:application-inference-profile/h5noq1c7u7ri",
+      modelId: process.env.LLM_MODEL_ID,
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
@@ -152,7 +153,7 @@ Style: modern AI startup branding
 `;
 
     const imageCommand = new InvokeModelCommand({
-      modelId: "amazon.titan-image-generator-v2:0",
+      modelId: process.env.IMAGE_MODEL_ID,
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
@@ -183,14 +184,14 @@ Style: modern AI startup branding
     const imageKey = `campaign-images/${campaignId}.png`;
 
     await s3.send(new PutObjectCommand({
-      Bucket: "contentos-assets",
+      Bucket: process.env.S3_BUCKET_NAME,
       Key: imageKey,
       Body: Buffer.from(base64Image, "base64"),
       ContentType: "image/png"
     }));
 
     const imageUrl =
-      `https://contentos-assets.s3.amazonaws.com/${imageKey}`;
+      `https://${process.env.S3_BUCKET_NAME}.s3.amazonaws.com/${imageKey}`;
 
     /* ------------------------------
        Agent tools
@@ -207,7 +208,7 @@ Style: modern AI startup branding
     ------------------------------ */
 
     await dynamo.send(new PutItemCommand({
-      TableName: "ContentOS_Campaigns",
+      TableName: process.env.DYNAMODB_TABLE_NAME,
       Item: {
         campaignId: { S: campaignId },
         userId: { S: userId },
@@ -247,6 +248,11 @@ Style: modern AI startup branding
 
     return {
       statusCode: 500,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "*"
+      },
       body: JSON.stringify({
         message: "Agent execution failed",
         error: error.message
@@ -270,6 +276,11 @@ module.exports.getCampaigns = async (event) => {
     if (!userId) {
       return {
         statusCode: 400,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Allow-Methods": "*"
+        },
         body: JSON.stringify({
           message: "UserId is required"
         })
@@ -277,7 +288,7 @@ module.exports.getCampaigns = async (event) => {
     }
 
     const data = await dynamo.send(new ScanCommand({
-      TableName: "ContentOS_Campaigns"
+      TableName: process.env.DYNAMODB_TABLE_NAME
     }));
 
     const campaigns =
@@ -309,6 +320,11 @@ module.exports.getCampaigns = async (event) => {
 
     return {
       statusCode: 500,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "*"
+      },
       body: JSON.stringify({
         message: "Failed to fetch campaigns",
         error: error.message
